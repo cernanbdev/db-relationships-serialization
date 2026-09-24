@@ -1,7 +1,7 @@
 from sqlalchemy import MetaData
 
 from app import create_app, db
-from app.models import Document, User
+from app.models import Document, Profile, User
 
 app = create_app()
 
@@ -16,6 +16,10 @@ with app.app_context():
 
     ada = User(email="ada@example.com")
     grace = User(email="grace@example.com")
+
+    # One-to-one: each user gets exactly one profile.
+    ada.profile = Profile(display_name="Ada L.")
+    grace.profile = Profile(display_name="Grace H.")
 
     # One-to-many: a user owns documents.
     relationships_doc = Document(
@@ -37,4 +41,4 @@ with app.app_context():
     db.session.add_all([ada, grace, relationships_doc, marshmallow_doc, chunking_doc])
     db.session.commit()
 
-    print(f"Seeded {User.query.count()} users, {Document.query.count()} documents.")
+    print(f"Seeded {User.query.count()} users, {Profile.query.count()} profiles, {Document.query.count()} documents.")
