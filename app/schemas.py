@@ -1,24 +1,31 @@
-from marshmallow import Schema, fields
+from marshmallow import Schema, ValidationError, fields, validate
+
+
+def not_blank(value):
+    """Custom validator: reject strings that are empty or only whitespace."""
+    if not value.strip():
+        raise ValidationError("Cannot be blank.")
 
 
 class TagSchema(Schema):
     id = fields.Int(dump_only=True)
-    name = fields.Str()
+    name = fields.Str(required=True, validate=validate.Length(min=2, max=50))
     # No "documents" field here. Tag -> documents -> tags -> documents ...
     # would recurse forever, and API consumers don't need it inside a document.
 
 
 class ChunkSchema(Schema):
     id = fields.Int(dump_only=True)
-    position = fields.Int()
-    content = fields.Str()
+    position = fields.Int(required=True, validate=validate.Range(min=0))
+    content = fields.Str(required=True, validate=not_blank)
 
 
 class DocumentSchema(Schema):
     id = fields.Int(dump_only=True)
-    title = fields.Str()
-    source_url = fields.Str()
-    owner_id = fields.Int()
+    title = fields.Str(required=True, validate=validate.Length(min=3, max=120))
+    # Optional: may be left out or sent as null, but if present it must be a URL.
+    source_url = fields.Url(allow_none=True)
+    owner_id = fields.Int(required=True)
 
     # Nested relationships are output only. Chunks and tags are added through
     # their own endpoints, so POST /documents does not accept them.
@@ -33,7 +40,7 @@ class ProfileSchema(Schema):
 
 class UserSchema(Schema):
     id = fields.Int(dump_only=True)
-    email = fields.Str()
+    email = fields.Email(required=True)
     profile = fields.Nested(ProfileSchema, dump_only=True, allow_none=True)
     # No "documents" field: a user's documents are a separate concern.
 
