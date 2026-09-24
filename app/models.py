@@ -1,6 +1,16 @@
 from app import db
 
 
+# Association table for the Document <-> Tag many-to-many relationship.
+# It has no model class: each row just says "this document has this tag".
+# The composite primary key stops the same tag being attached twice.
+document_tags = db.Table(
+    "document_tags",
+    db.Column("document_id", db.Integer, db.ForeignKey("documents.id"), primary_key=True),
+    db.Column("tag_id", db.Integer, db.ForeignKey("tags.id"), primary_key=True),
+)
+
+
 class User(db.Model):
     __tablename__ = "users"
 
@@ -45,6 +55,19 @@ class Document(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
 
     owner = db.relationship("User", back_populates="documents")
+    tags = db.relationship("Tag", secondary=document_tags, back_populates="documents", order_by="Tag.name")
 
     def __repr__(self):
         return f"<Document id={self.id} title={self.title!r}>"
+
+
+class Tag(db.Model):
+    __tablename__ = "tags"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False, unique=True)
+
+    documents = db.relationship("Document", secondary=document_tags, back_populates="tags")
+
+    def __repr__(self):
+        return f"<Tag id={self.id} name={self.name!r}>"

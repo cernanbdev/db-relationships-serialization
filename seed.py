@@ -1,7 +1,7 @@
 from sqlalchemy import MetaData
 
 from app import create_app, db
-from app.models import Document, Profile, User
+from app.models import Document, Profile, Tag, User
 
 app = create_app()
 
@@ -21,24 +21,33 @@ with app.app_context():
     ada.profile = Profile(display_name="Ada L.")
     grace.profile = Profile(display_name="Grace H.")
 
+    # Many-to-many: tags are shared across documents.
+    flask_tag = Tag(name="flask")
+    sqlalchemy_tag = Tag(name="sqlalchemy")
+    retrieval_tag = Tag(name="retrieval")
+
     # One-to-many: a user owns documents.
     relationships_doc = Document(
         title="Flask Relationships",
         source_url="https://example.com/flask",
         owner=ada,
+        tags=[flask_tag, sqlalchemy_tag],
     )
     marshmallow_doc = Document(
         title="Marshmallow Basics",
         source_url="https://example.com/marshmallow",
         owner=ada,
+        tags=[flask_tag],
     )
     chunking_doc = Document(
         title="Chunking for Retrieval",
         source_url=None,
         owner=grace,
+        tags=[retrieval_tag],
     )
 
     db.session.add_all([ada, grace, relationships_doc, marshmallow_doc, chunking_doc])
     db.session.commit()
 
-    print(f"Seeded {User.query.count()} users, {Profile.query.count()} profiles, {Document.query.count()} documents.")
+    print(f"Seeded {User.query.count()} users, {Profile.query.count()} profiles, {Document.query.count()} documents, "
+          f"{Tag.query.count()} tags.")
