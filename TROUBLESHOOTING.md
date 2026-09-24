@@ -3,12 +3,14 @@
 Concise fixes for common classroom-demo problems.
 Commands assume you are in the repository root.
 
-If a fix takes longer than 30 seconds during class, use a checkpoint reset instead (see [LIVE_CODING_CHECKPOINTS.md](LIVE_CODING_CHECKPOINTS.md)):
+If a fix takes longer than 30 seconds during class, restore the broken file from its checkpoint instead (see [LIVE_CODING_CHECKPOINTS.md](LIVE_CODING_CHECKPOINTS.md)).
+You stay on your branch:
 
 ```bash
-git reset --hard <tag>
-python seed.py
+git checkout <tag> -- app/models.py      # or app/schemas.py, app/routes.py
 ```
+
+If you restored `app/models.py`, run `flask --app run db migrate` and `flask --app run db upgrade` afterward.
 
 ---
 
@@ -48,33 +50,74 @@ pip install -r requirements.txt
 
 Note the import names differ from the package names: the package `Flask-SQLAlchemy` is imported as `flask_sqlalchemy`.
 
-## Database file contains an old schema
+## Forgot to migrate
 
-**Symptom:** after changing `models.py`, errors like:
+**Symptom:** after adding or changing a model, errors like:
 
 ```
 sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such table: chunks
 sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: documents.source_url
 ```
 
-**Cause:** `db.create_all()` creates missing tables but never alters existing ones.
-The SQLite file still has the old shape.
+`python seed.py` prints the same message plus a reminder to migrate.
+`pytest` fails `test_migrations_build_the_same_schema_as_the_models` and lists what is missing.
+
+**Cause:** the model changed, but the database didn't.
+Only migrations create or change tables in this project.
 
 **Fix:**
 
 ```bash
-python seed.py
-```
-
-`seed.py` drops every table in the database file (even tables from a different checkpoint) and then calls `db.create_all()`, so it always rebuilds from the current models.
-If that fails too, delete the file and reseed:
-
-```bash
-rm instance/knowledge_base.db      # Windows: del instance\knowledge_base.db
-python seed.py
+flask --app run db migrate -m "Describe the change"
+flask --app run db upgrade
+python seed.py --checkpoint N
 ```
 
 Restart `flask --app run shell` afterward; the shell keeps the old models loaded.
+
+## A migration went wrong
+
+**Symptom:** `flask db migrate` wrote a migration from a model with a mistake in it, for example a misspelled column.
+
+**Fix, if you have not run `upgrade` yet:** delete the new file in `migrations/versions/`, fix the model, and run `flask --app run db migrate` again.
+
+**Fix, if you already ran `upgrade`:** undo it first, then do the same:
+
+```bash
+flask --app run db downgrade              # undoes the most recent migration
+rm migrations/versions/<bad_file>.py      # Windows: del migrations\versions\<bad_file>.py
+# fix the model, then:
+flask --app run db migrate -m "Describe the change"
+flask --app run db upgrade
+```
+
+Other messages you may see:
+
+| Message                                                   | Fix                                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `Target database is not up to date.`                      | the previous migration was never applied: `flask --app run db upgrade`, then migrate again |
+| `No changes in schema detected.`                          | save `app/models.py`; the model file on disk hasn't changed                            |
+| `Can't locate revision identified by '...'`               | the database remembers a migration file that was deleted: start the database over (below) |
+
+## Start the database over
+
+When the database is in a state you don't trust, rebuild it from the migrations:
+
+```bash
+rm instance/knowledge_base.db      # Windows: del instance\knowledge_base.db
+flask --app run db upgrade
+python seed.py --checkpoint N
+```
+
+`N` is the checkpoint you have reached (leave off `--checkpoint` on the finished app).
+
+## pytest fails to import a model you haven't written yet
+
+**Symptom:** `ImportError: cannot import name 'Chunk' from 'app.models'` while collecting a test file such as `tests/test_04_document_chunks.py`.
+
+**Cause:** plain `pytest -q` runs every checkpoint's tests, including ones for code you haven't typed yet.
+
+**Fix:** tell pytest which checkpoint you have reached: `pytest -q --checkpoint N`.
 
 ## Circular import
 
@@ -94,7 +137,7 @@ Those modules do `from app import db`, which isn't ready yet.
 Also make sure `models.py` never imports from `routes.py` or `schemas.py`.
 The direction is: `routes` → `schemas` and `models` → `db`.
 
-To restore the file: `git checkout 00-starter -- app/__init__.py`.
+To restore the file: `git checkout starter -- app/__init__.py`.
 
 ## "Working outside of application context"
 
@@ -141,7 +184,8 @@ sqlalchemy.exc.NoReferencedTableError: Foreign key associated with column 'docum
 | `Document` | `documents`     | `"documents.id"`     |
 | `Tag`      | `tags`          | `"tags.id"`          |
 
-Then `python seed.py`.
+Then rerun `flask --app run db migrate`.
+The broken model stops `migrate` before it writes a file, so there is nothing to clean up.
 
 Rule of thumb: `db.ForeignKey(...)` talks to the database, so it uses table names.
 `db.relationship(...)` talks to Python, so it uses class names.
@@ -291,4 +335,4 @@ On macOS, avoid port 5000: AirPlay Receiver often uses it, which is why this pro
 | `pytest` can't import `app`                                     | run `pytest` from the repository root (where `pytest.ini` is)                           |
 | PowerShell won't run `Activate.ps1`                             | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`                                   |
 | Windows curl JSON quoting errors                                | use Git Bash, or `curl.exe ... -d '{\"name\": \"flask\"}'` in PowerShell                |
-| `git checkout <tag>` refuses because of local changes           | `git stash -u`, then check out again                                                    |
+| `flask: command not found` or `Error: No such command 'db'`     | activate `.venv`, then `pip install -r requirements.txt` (installs Flask-Migrate)       |

@@ -1,9 +1,11 @@
 from flask import Flask
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 
 db = SQLAlchemy()
+migrate = Migrate()
 
 
 # SQLite ignores FOREIGN KEY constraints unless we turn them on for every
@@ -27,8 +29,11 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     db.init_app(app)
+    # Adds the `flask db` commands. SQLite can't ALTER most things in place, so
+    # batch mode makes Alembic copy the table instead when a column changes.
+    migrate.init_app(app, db, render_as_batch=True)
 
-    # Imported here so the models are registered before tables are created.
+    # Imported here so the models are registered before migrations or tables are created.
     from app import models  # noqa: F401
     from app.routes import api
 

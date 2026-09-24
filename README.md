@@ -30,10 +30,10 @@ Document ──M:M── Tag          (through the document_tags association tab
 ## Requirements
 
 - Python 3.10 or newer
-- Git (to move between the live-coding checkpoints)
+- Git
 
 Nothing else.
-The database is a SQLite file that is created for you.
+The database is a SQLite file that the migrations create for you.
 
 ## Setup from a clean clone
 
@@ -45,6 +45,7 @@ cd ai-knowledge-base
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+flask --app run db upgrade
 python seed.py
 python run.py
 ```
@@ -57,6 +58,7 @@ cd ai-knowledge-base
 py -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+flask --app run db upgrade
 python seed.py
 python run.py
 ```
@@ -65,17 +67,19 @@ Windows (Command Prompt): activate with `.venv\Scripts\activate.bat` instead.
 
 If PowerShell refuses to run the activation script, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once and try again.
 
-`python seed.py` should print:
+`flask --app run db upgrade` runs the migrations in `migrations/versions/`, which create the tables.
+`python seed.py` should then print:
 
 ```
-Seeded 2 users, 2 profiles, 3 documents, 5 chunks, 3 tags.
+Seeded 2 users, 3 documents, 2 profiles, 3 tags, 5 chunks.
 ```
 
 `python run.py` starts the API at <http://127.0.0.1:5555>.
 The app uses port 5555 because macOS often reserves port 5000 for AirPlay.
 
 The SQLite file lives at `instance/knowledge_base.db`.
-Running `python seed.py` again deletes all tables and recreates them with fresh data.
+Running `python seed.py` again deletes every row and inserts fresh sample data.
+It never creates or changes tables; only migrations do that.
 
 ## Run the tests
 
@@ -83,14 +87,21 @@ Running `python seed.py` again deletes all tables and recreates them with fresh 
 pytest -q
 ```
 
-Expected on the final checkpoint:
+Expected on `main`:
 
 ```
-44 passed
+45 passed
 ```
 
 The tests are written to be read.
-`tests/test_models.py` covers relationships and database constraints, `tests/test_schemas.py` covers `dump()` and `load()`, and `tests/test_routes.py` covers the HTTP endpoints.
+Each file is named after the checkpoint that makes it pass, from `test_00_health.py` to `test_08_integrity_errors.py`.
+`test_00_migrations.py` runs every migration against an empty database and checks that the result matches the models.
+
+While building the app from the `starter` branch, run only the checkpoints you have reached:
+
+```bash
+pytest -q --checkpoint 3      # runs test_00_* through test_03_*
+```
 
 ## Endpoints
 
@@ -168,47 +179,60 @@ app/
   models.py       User, Profile, Document, Chunk, Tag, document_tags
   schemas.py      Marshmallow schemas (serialization + validation)
   routes.py       the API endpoints and the response envelope helpers
-tests/            pytest suite (in-memory database per test)
-seed.py           drops, recreates, and fills the SQLite database
+migrations/       Alembic migrations (Flask-Migrate); one per model
+tests/            pytest suite, one file per checkpoint (in-memory database per test)
+seed.py           clears and fills the SQLite database; --checkpoint N seeds only what exists at N
 run.py            starts the development server on port 5555
 ```
 
 ## Live-coding checkpoints
 
-The git history is a sequence of tagged checkpoints.
-Each tag is a working state: `python seed.py && pytest -q` passes on every one.
+There are two branches:
 
-| Tag                              | Adds                                                              |
-| -------------------------------- | ----------------------------------------------------------------- |
-| `00-starter`                     | Flask app, `db`, `User` model, `/health`, response helpers        |
-| `01-one-to-many`                 | `Document`, `User.documents` / `Document.owner`                   |
-| `02-one-to-one`                  | `Profile`, `uselist=False`, UNIQUE `user_id`                      |
-| `03-many-to-many`                | `Tag`, `document_tags` association table                          |
-| `04-document-chunks`             | `Chunk`, CHECK and UNIQUE constraints                             |
-| `05-serialization`               | Marshmallow schemas for `dump()`, GET endpoints                   |
-| `06-deserialization-validation`  | required fields and validators for `load()`                       |
-| `07-api-responses`               | `POST /documents` with `ValidationError` handling                 |
-| `08-final`                       | chunk, tag, and user endpoints, `IntegrityError` handling         |
+- `starter`: the scaffolding you start class from.
+  It has the `User` model and its migration, plus the seed data and tests for every checkpoint.
+- `main`: the finished app.
+  `git diff starter main` shows only the lesson code (`app/`) and the migrations typed during class.
 
-To start a live session from the starter:
+You build the whole app on one branch, starting from `starter`, and never switch branches:
 
 ```bash
-git checkout -b live-session 00-starter
-python seed.py
+git checkout -b live-session starter
+flask --app run db upgrade
+python seed.py --checkpoint 0
+pytest -q --checkpoint 0
 ```
 
-To jump to any checkpoint (this discards uncommitted edits on your branch):
+After typing each new model, create its table with a migration, then seed and test up to that checkpoint:
 
 ```bash
-git reset --hard 04-document-chunks
-python seed.py
+flask --app run db migrate -m "Create documents table"
+flask --app run db upgrade
+python seed.py --checkpoint 1
+pytest -q --checkpoint 1
 ```
 
-To see exactly what a checkpoint adds:
+| Checkpoint                       | Adds                                                              | New migration?            |
+| -------------------------------- | ----------------------------------------------------------------- | ------------------------- |
+| `00-starter`                     | Flask app, `db`, `User` model, `/health`, response helpers        | `users` (already on `starter`) |
+| `01-one-to-many`                 | `Document`, `User.documents` / `Document.owner`                   | `documents`               |
+| `02-one-to-one`                  | `Profile`, `uselist=False`, UNIQUE `user_id`                      | `profiles`                |
+| `03-many-to-many`                | `Tag`, `document_tags` association table                          | `tags`, `document_tags`   |
+| `04-document-chunks`             | `Chunk`, CHECK and UNIQUE constraints                             | `chunks`                  |
+| `05-serialization`               | Marshmallow schemas for `dump()`, GET endpoints                   | no                        |
+| `06-deserialization-validation`  | required fields and validators for `load()`                       | no                        |
+| `07-api-responses`               | `POST /documents` with `ValidationError` handling                 | no                        |
+| `08-final`                       | chunk, tag, and user endpoints, `IntegrityError` handling         | no                        |
+
+The checkpoint names are also git tags.
+They hold the reference version of each lesson file, so you can compare your work or restore one file without leaving your branch:
 
 ```bash
-git diff 03-many-to-many 04-document-chunks
+git diff 04-document-chunks -- app/models.py
+git checkout 04-document-chunks -- app/models.py
 ```
+
+The tags predate the migrations, so use them for files in `app/` only.
 
 ## Teaching materials
 

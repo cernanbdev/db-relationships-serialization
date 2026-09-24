@@ -41,7 +41,8 @@ By the end of the session, students can:
 
 ### 15 to 40: Concept Review
 
-Code is typed live on the `live-session` branch, starting from `00-starter`.
+Code is typed live on the `live-session` branch, starting from `starter`.
+Each new model gets a migration (`flask db migrate`, then `flask db upgrade`) as soon as it is typed.
 
 | Minute   | Level        | Topic                                                           | Checkpoint reached   |
 | -------- | ------------ | --------------------------------------------------------------- | -------------------- |
@@ -63,7 +64,7 @@ Code is typed live on the `live-session` branch, starting from `00-starter`.
 | 61 to 68 | Validation rules and `load()`                                      | `06-deserialization-validation`   |
 | 68 to 73 | POST `/documents`: valid request                                   |                                   |
 | 73 to 78 | POST `/documents`: invalid request, `ValidationError`, 400 response | `07-api-responses`               |
-| 78 to 82 | Why UNIQUE in the database? Duplicate tag demo                     | `08-final` (checked out, not typed) |
+| 78 to 82 | Why UNIQUE in the database? Duplicate tag demo                     | `08-final` (routes pulled from `main`, not typed) |
 | 82 to 85 | API response design for retrieval and AI features                  |                                   |
 
 ### 85 to 90: Assessment Bridge / Exit Check
@@ -87,7 +88,7 @@ Details and code are in the "Extension activities" section of [INSTRUCTOR_SCRIPT
 | -- | ------------------------------------------------------------------- | ------ | --------------------------------- |
 | E1 | Bug hunt: break a `back_populates` name and read the error together | 3 min  | Goal 4                            |
 | E2 | Students dictate a new test: a 121-character title is rejected      | 4 min  | Goal 6                            |
-| E3 | Live-code POST `/documents/<id>/chunks`, then compare with `08-final` | 8 min | Goals 6, 7, 8                     |
+| E3 | Live-code POST `/documents/<id>/chunks`, then compare with `main`   | 8 min  | Goals 6, 7, 8                     |
 | E4 | Send `"id": 99` and `"chunks": []` in a POST body; predict the error | 2 min  | Goal 5 (`dump_only`)              |
 | E5 | Turn off the SQLite foreign-key PRAGMA and insert an orphan document | 4 min  | Goal 8                            |
 | E6 | Design discussion: should `"Flask"` and `"flask"` be different tags? | 4 min  | Goal 8                            |
@@ -100,16 +101,17 @@ Protect the 85 to 90 exit check.
 Cut in this order:
 
 1. Skip the step 9 shell demo; point to `test_database_rejects_negative_chunk_position` instead.
-2. At checkpoint 05, `git reset --hard 05-serialization` and walk through the diff instead of typing.
-3. At checkpoint 06, `git reset --hard 06-deserialization-validation` and demo `load()` in the shell.
+2. At checkpoint 05, `git checkout 05-serialization -- app/schemas.py app/routes.py` and walk through the diff instead of typing.
+3. At checkpoint 06, `git checkout 06-deserialization-validation -- app/schemas.py` and demo `load()` in the shell.
 4. Shorten the API design discussion (step 16) to the single question and a one-sentence answer.
 
 ## Before class checklist
 
 - [ ] Clone, create `.venv`, `pip install -r requirements.txt`
-- [ ] `git checkout -b live-session 00-starter`
-- [ ] `python seed.py` prints `Seeded 2 users.`
-- [ ] `pytest -q` prints `1 passed`
+- [ ] `git checkout -b live-session starter` (after a rehearsal: `git reset --hard starter && git clean -fd migrations/`)
+- [ ] `rm -f instance/knowledge_base.db && flask --app run db upgrade`
+- [ ] `python seed.py --checkpoint 0` prints `Seeded 2 users.`
+- [ ] `pytest -q --checkpoint 0` prints `2 passed`
 - [ ] Editor font size large enough for the back row
 - [ ] Three terminals open: server, shell/tests, curl
 - [ ] `INSTRUCTOR_SCRIPT.md` open beside the editor

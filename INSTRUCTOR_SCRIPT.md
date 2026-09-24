@@ -28,33 +28,46 @@ Two answer keys are at the bottom of this file so you do not reveal them by acci
 ### The live-coding rhythm
 
 You only type the lesson code: models, schemas, and routes.
-You do **not** type seed data or tests.
-After each coding step you pull those from the matching checkpoint tag:
+You do **not** type seed data or tests, and you never switch branches.
+The `starter` branch already holds the seed data and the tests for every checkpoint.
+You switch them on by telling them which checkpoint you have reached.
+
+After each **model** step, create the table with a migration, then seed and test:
 
 ```bash
-git checkout <tag> -- seed.py tests/
-python seed.py
-pytest -q
+flask --app run db migrate -m "Create <table> table"
+flask --app run db upgrade
+python seed.py --checkpoint N
+pytest -q --checkpoint N
 ```
 
-Then run `git diff <tag>` to compare your typed code with the reference.
+After each **schema or route** step, only the `pytest` line is needed.
+
+`N` is the checkpoint number: `1` for `01-one-to-many`, `2` for `02-one-to-one`, and so on.
+`seed.py` then seeds only the models that exist so far, and `pytest` runs only the test files numbered `00` through `N`.
+Without `--checkpoint`, both run everything, which only works once the whole app exists.
+
+Then compare your typed code with the reference, for example `git diff 01-one-to-many -- app/models.py`.
+This only reads the tag; it does not move your branch.
 Differences in comments are fine.
 Any other difference is a typo worth fixing before you move on.
 
-If something breaks and you cannot fix it in about 30 seconds, jump to the checkpoint:
+If something breaks and you cannot fix it in about 30 seconds, restore that one file from the checkpoint and rerun the commands above:
 
 ```bash
-git reset --hard <tag>
-python seed.py
+git checkout <tag> -- app/models.py      # or app/schemas.py, app/routes.py
 ```
 
-This file, the agenda, and the recovery guides are identical on every checkpoint, so a reset never moves them.
+You stay on your branch, and your other files are untouched.
+If a migration itself went wrong, see "A migration went wrong" in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+This file, the agenda, and the recovery guides are the same on `starter` and `main`.
 
 ### Terminal layout
 
 - **Terminal 1 (server):** `python run.py`.
   Not needed until step 11.
-- **Terminal 2 (shell and tests):** `flask --app run shell`, `python seed.py`, `pytest -q`.
+- **Terminal 2 (shell, migrations, and tests):** `flask --app run shell`, `flask --app run db ...`, `python seed.py --checkpoint N`, `pytest -q --checkpoint N`.
 - **Terminal 3 (requests):** `curl` commands.
 
 All three need the virtual environment activated (`source .venv/bin/activate`).
@@ -68,9 +81,21 @@ After you change `models.py` or `schemas.py`, type `exit()` and start `flask --a
 cd ai-knowledge-base
 source .venv/bin/activate
 git status                                # clean working tree
-git checkout -b live-session 00-starter   # if the branch already exists: git checkout live-session && git reset --hard 00-starter
-python seed.py                            # Seeded 2 users.
-pytest -q                                 # 1 passed
+git checkout -b live-session starter      # if the branch already exists: see below
+pip install -r requirements.txt           # picks up Flask-Migrate
+rm -f instance/knowledge_base.db          # start from an empty database
+flask --app run db upgrade                # creates the users table
+python seed.py --checkpoint 0             # Seeded 2 users.
+pytest -q --checkpoint 0                  # 2 passed
+```
+
+If `live-session` already exists from a rehearsal, reset it instead of creating it.
+`git clean` removes migration files you generated but never committed:
+
+```bash
+git checkout live-session
+git reset --hard starter
+git clean -fd migrations/
 ```
 
 Open these files in the editor as tabs: `app/models.py`, `app/schemas.py`, `app/routes.py`, `app/__init__.py`.
@@ -291,14 +316,24 @@ class Document(db.Model):
         return f"<Document id={self.id} title={self.title!r}>"
 ```
 
-Then pull the seed and tests, and verify:
+Then create the table with a migration, seed it, and verify:
 
 ```bash
-git checkout 01-one-to-many -- seed.py tests/
-python seed.py
-pytest -q
-git diff 01-one-to-many
+flask --app run db migrate -m "Create documents table"
+flask --app run db upgrade
+python seed.py --checkpoint 1
+pytest -q --checkpoint 1
+git diff 01-one-to-many -- app/models.py
 ```
+
+**EXPLAIN (migrations, the first time only):**
+- "Writing a class doesn't create a table.
+  `flask db migrate` compares our models with the database and writes the difference down as a migration file.
+  `flask db upgrade` runs that file against the database."
+- Open the new file in `migrations/versions/` and point at `op.create_table('documents', ...)` and `sa.ForeignKeyConstraint(['owner_id'], ['users.id'])`.
+  "That's our foreign key, written in the database's own terms.
+  Always read a generated migration before you run it."
+- "Every model change from here on is the same three moves: migrate, read, upgrade."
 
 **EXPLAIN:**
 - "Notice that `owner_id` is the database-level connection.
@@ -348,9 +383,10 @@ Now show `back_populates` keeping both sides in sync before anything is saved:
 
 **EXPECTED RESULT:**
 
-- `python seed.py` prints `Seeded 2 users, 3 documents.`
-- `pytest -q` prints `5 passed`.
-- `git diff 01-one-to-many` shows nothing, or only comment differences.
+- `flask db migrate` prints `Detected added table 'documents'`.
+- `python seed.py --checkpoint 1` prints `Seeded 2 users, 3 documents.`
+- `pytest -q --checkpoint 1` prints `6 passed`.
+- `git diff 01-one-to-many -- app/models.py` shows nothing, or only comment differences.
 - Shell:
 
 ```
@@ -367,8 +403,9 @@ True
 **COMMON MISTAKE:** `db.ForeignKey("user.id")` (singular) or `db.ForeignKey("User.id")` (class name).
 The error is `NoReferencedTableError: Foreign key associated with column 'documents.owner_id' could not find table 'user'`.
 
-**RECOVERY:** Fix the string to `"users.id"` and rerun `python seed.py`.
-If you are still stuck after 30 seconds: `git reset --hard 01-one-to-many && python seed.py`.
+**RECOVERY:** Fix the string to `"users.id"` and rerun `flask --app run db migrate`.
+The broken model stops `migrate` before it writes a file, so there is nothing to clean up.
+If you are still stuck after 30 seconds: `git checkout 01-one-to-many -- app/models.py`, then rerun the migrate, upgrade, and seed commands.
 
 **TRANSITION:**
 "One user, many documents: the foreign key goes on the many side.
@@ -420,10 +457,11 @@ class Profile(db.Model):
 ```
 
 ```bash
-git checkout 02-one-to-one -- seed.py tests/
-python seed.py
-pytest -q
-git diff 02-one-to-one
+flask --app run db migrate -m "Create profiles table"
+flask --app run db upgrade
+python seed.py --checkpoint 2
+pytest -q --checkpoint 2
+git diff 02-one-to-one -- app/models.py
 ```
 
 **EXPLAIN:**
@@ -463,8 +501,9 @@ flask --app run shell
 
 **EXPECTED RESULT:**
 
-- `python seed.py` prints `Seeded 2 users, 2 profiles, 3 documents.`
-- `pytest -q` prints `7 passed`.
+- `flask db migrate` prints `Detected added table 'profiles'`.
+- `python seed.py --checkpoint 2` prints `Seeded 2 users, 3 documents, 2 profiles.`
+- `pytest -q --checkpoint 2` prints `8 passed`.
 - Shell:
 
 ```
@@ -485,7 +524,7 @@ Scroll to the **last line** of the traceback and read it aloud.
 `uselist=False` belongs on the side that would otherwise be a list.
 
 **RECOVERY:** If the shell is stuck with `PendingRollbackError`, type `db.session.rollback()`.
-If the model is broken: `git reset --hard 02-one-to-one && python seed.py`.
+If the model is broken: `git checkout 02-one-to-one -- app/models.py`, then rerun the migrate, upgrade, and seed commands.
 
 **TRANSITION:**
 "So far each foreign key has pointed in one direction.
@@ -539,10 +578,11 @@ class Tag(db.Model):
 ```
 
 ```bash
-git checkout 03-many-to-many -- seed.py tests/
-python seed.py
-pytest -q
-git diff 03-many-to-many
+flask --app run db migrate -m "Create tags and document_tags tables"
+flask --app run db upgrade
+python seed.py --checkpoint 3
+pytest -q --checkpoint 3
+git diff 03-many-to-many -- app/models.py
 ```
 
 **EXPLAIN:**
@@ -584,8 +624,9 @@ flask --app run shell
 
 **EXPECTED RESULT:**
 
-- `python seed.py` prints `Seeded 2 users, 2 profiles, 3 documents, 3 tags.`
-- `pytest -q` prints `9 passed`.
+- `flask db migrate` prints `Detected added table 'tags'` and `Detected added table 'document_tags'`.
+- `python seed.py --checkpoint 3` prints `Seeded 2 users, 3 documents, 2 profiles, 3 tags.`
+- `pytest -q --checkpoint 3` prints `10 passed`.
 - Shell:
 
 ```
@@ -601,7 +642,7 @@ flask --app run shell
 Python raises `NameError: name 'document_tags' is not defined` when it reads `secondary=document_tags`.
 
 **RECOVERY:** Move the `document_tags = db.Table(...)` block to the top of the file.
-Or: `git reset --hard 03-many-to-many && python seed.py`.
+Or: `git checkout 03-many-to-many -- app/models.py`, then rerun the migrate, upgrade, and seed commands.
 
 **TRANSITION:**
 "We now have all three relationship types.
@@ -771,10 +812,11 @@ class Chunk(db.Model):
 ```
 
 ```bash
-git checkout 04-document-chunks -- seed.py tests/
-python seed.py
-pytest -q
-git diff 04-document-chunks
+flask --app run db migrate -m "Create chunks table"
+flask --app run db upgrade
+python seed.py --checkpoint 4
+pytest -q --checkpoint 4
+git diff 04-document-chunks -- app/models.py
 ```
 
 **EXPLAIN:**
@@ -789,15 +831,18 @@ git diff 04-document-chunks
 
 **EXPECTED RESULT:**
 
-- `python seed.py` prints `Seeded 2 users, 2 profiles, 3 documents, 5 chunks, 3 tags.`
-- `pytest -q` prints `12 passed`.
-- **From this checkpoint on, the database schema never changes again.**
+- `flask db migrate` prints `Detected added table 'chunks'`.
+  The migration file lists `sa.CheckConstraint('position >= 0', ...)` and `sa.UniqueConstraint('document_id', 'position', ...)`.
+- `python seed.py --checkpoint 4` prints `Seeded 2 users, 3 documents, 2 profiles, 3 tags, 5 chunks.`
+- `pytest -q --checkpoint 4` prints `13 passed`.
+- **This is the last migration: the database schema never changes again.**
+  From here on, plain `python seed.py` works too.
 
 **COMMON MISTAKE:** Writing `__table_args__ = (db.CheckConstraint(...))` with one constraint and no trailing comma.
 That's not a tuple.
 With two constraints (as here) it's fine; with one you need `(constraint,)`.
 
-**RECOVERY:** `git reset --hard 04-document-chunks && python seed.py`.
+**RECOVERY:** `git checkout 04-document-chunks -- app/models.py`, then rerun the migrate, upgrade, and seed commands.
 
 **TRANSITION:**
 "Our schema won't validate position yet, because we haven't written schemas at all.
@@ -1039,10 +1084,8 @@ def get_document(document_id):
 ```
 
 ```bash
-git checkout 05-serialization -- seed.py tests/
-python seed.py
-pytest -q
-git diff 05-serialization
+pytest -q --checkpoint 5
+git diff 05-serialization -- app/schemas.py app/routes.py
 ```
 
 Start the server in Terminal 1 (leave it running for the rest of class):
@@ -1069,7 +1112,7 @@ curl http://127.0.0.1:5555/documents/999
 
 **EXPECTED RESULT:**
 
-- `pytest -q` prints `20 passed`.
+- `pytest -q --checkpoint 5` prints `21 passed`.
 - `curl .../documents/1` returns `{"data": {"id": 1, "title": "Flask Relationships", ... "tags": [...], "chunks": [...]}}`.
 - `curl .../documents` returns three documents, each **without** a `chunks` key.
 - `curl .../documents/999` returns:
@@ -1087,7 +1130,7 @@ curl http://127.0.0.1:5555/documents/999
 You get a dict of empty or wrong values instead of a list.
 
 **RECOVERY:** Use `document_list_schema` for lists.
-If the server won't start: check Terminal 1 for the error, then `git reset --hard 05-serialization && python seed.py` and restart `python run.py`.
+If the server won't start: check Terminal 1 for the error, then `git checkout 05-serialization -- app/schemas.py app/routes.py` and restart `python run.py`.
 
 **TRANSITION:**
 "Data can come out.
@@ -1158,9 +1201,8 @@ Then change these field lines:
 ```
 
 ```bash
-git checkout 06-deserialization-validation -- seed.py tests/
-pytest -q
-git diff 06-deserialization-validation
+pytest -q --checkpoint 6
+git diff 06-deserialization-validation -- app/schemas.py
 ```
 
 **ASK STUDENTS (predict before each line):**
@@ -1202,7 +1244,7 @@ flask --app run shell
 
 **EXPECTED RESULT:**
 
-- `pytest -q` prints `31 passed`.
+- `pytest -q --checkpoint 6` prints `32 passed`.
 - Shell:
 
 ```
@@ -1384,9 +1426,8 @@ curl -X POST http://127.0.0.1:5555/documents \
 Then verify the checkpoint:
 
 ```bash
-git checkout 07-api-responses -- tests/
-pytest -q
-git diff 07-api-responses
+pytest -q --checkpoint 7
+git diff 07-api-responses -- app/routes.py
 ```
 
 **EXPLAIN:**
@@ -1417,7 +1458,7 @@ git diff 07-api-responses
 }
 ```
 
-- `pytest -q` prints `34 passed`.
+- `pytest -q --checkpoint 7` prints `35 passed`.
 
 **COMMON MISTAKE:** Returning `err` or `str(err)` instead of `err.messages`.
 You get a flat string instead of a per-field dict.
@@ -1432,7 +1473,7 @@ So here's a question that trips up a lot of developers."
 ## Step 15: Why a UNIQUE constraint if Marshmallow validates?
 
 **TIME:** Minute 78
-**Checkpoint used:** `08-final` (checked out, not typed)
+**Checkpoint used:** `08-final` (the finished `app/routes.py` is pulled from `main`, not typed)
 
 **INSTRUCTOR SAYS:**
 "Tag names are unique.
@@ -1459,13 +1500,17 @@ Marshmallow is the helpful receptionist who tells you your form is incomplete.
 The database is the vault door.
 You want both."
 
-**CODE:** Save your live work, then check out the final checkpoint.
-The database schema hasn't changed since checkpoint 04, so no reseed is needed, and the server reloads by itself.
+**CODE:** Save your live work, then bring in the finished routes file from `main`.
+You stay on your branch, and only `app/routes.py` changes.
+The database schema hasn't changed since checkpoint 04, so no migration or reseed is needed, and the server reloads by itself.
 
 ```bash
 git add -A && git commit -m "Live session through checkpoint 07"
-git checkout 08-final
+git checkout main -- app/routes.py
+pytest -q
 ```
+
+`pytest -q` (no flag: every checkpoint) prints `45 passed`.
 
 Open `app/routes.py` and scroll to `create_tag`.
 Point at the `try` / `except IntegrityError` / `rollback()` block.
@@ -1510,7 +1555,7 @@ The second curl returns 201 with `{"data": {"id": 4, "name": "embeddings"}}`.
 **COMMON MISTAKE:** Forgetting `db.session.rollback()` in the `except` block.
 The *next* request that uses the session fails with `PendingRollbackError`.
 
-**RECOVERY:** If checkout complains about uncommitted changes, run `git stash -u` then `git checkout 08-final`.
+**RECOVERY:** If git says `main` is unknown, run `git fetch origin` and then `git checkout origin/main -- app/routes.py`.
 If the server is not responding, restart it with `python run.py`.
 
 **TRANSITION:**
@@ -1658,7 +1703,7 @@ Push for the database half: "And what stops a second profile row?"
 
 **TRANSITION (closing):**
 "Everything today was one pipeline: JSON in, validated by Marshmallow, turned into models, protected by constraints, saved, and serialized back out on purpose.
-The full working code is on the `08-final` tag, and the tests are written to be read.
+The full working code is on the `main` branch, and the tests are written to be read.
 Great work today."
 
 ---
@@ -1667,7 +1712,7 @@ Great work today."
 
 Use these, in order, whenever you reach a transition early.
 Stop when the clock reaches the next scheduled step.
-All of them work on `08-final`, and most also work on earlier checkpoints.
+All of them work once step 15 is done, and most also work on earlier checkpoints.
 
 ### E1: Bug hunt, mismatched back_populates (3 minutes)
 
@@ -1682,7 +1727,7 @@ Undo with `git checkout -- app/models.py`.
 ### E2: Students dictate a test (4 minutes)
 
 "Dictate a test that proves a 121-character title is rejected."
-Type it in `tests/test_schemas.py`, following `test_title_must_be_between_3_and_120_characters`:
+Type it in `tests/test_06_deserialization_validation.py`, following `test_title_must_be_between_3_and_120_characters`:
 
 ```python
 def test_title_cannot_be_121_characters():
@@ -1698,13 +1743,13 @@ Write that test too."
 
 ### E3: Live-code POST /documents/<id>/chunks (8 minutes)
 
-Work from `07-api-responses` state or delete `create_chunk` from `08-final`.
+Delete `create_chunk` from `app/routes.py` first.
 Ask students to dictate each line, using `create_document` as a model.
 Key questions:
 - "What do we do if the document doesn't exist?" (404)
 - "Which error does the schema catch, and which does the database catch?" (negative position vs duplicate position)
 
-Compare with `git diff` against `08-final` afterwards.
+Compare with `git diff main -- app/routes.py` afterwards.
 
 ### E4: dump_only in action (2 minutes)
 

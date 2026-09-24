@@ -1,59 +1,81 @@
 # Live-Coding Checkpoints: Emergency and Recovery Guide
 
-Every checkpoint is a git tag.
-Every tag is a working state where `python seed.py && pytest -q` passes.
+You build the whole app on one branch (`live-session`, created from `starter`) and never switch branches.
+The seed data and the tests for every checkpoint are already on that branch.
+You switch them on by passing the checkpoint number you have reached:
+
+```bash
+python seed.py --checkpoint N
+pytest -q --checkpoint N
+```
+
+Each new model also needs a migration before the seed and tests can use it:
+
+```bash
+flask --app run db migrate -m "Create <table> table"
+flask --app run db upgrade
+```
+
 The models (and so the database schema) stop changing at `04-document-chunks`.
+That is the last migration.
 
 ## The two recovery moves
 
 Memorize these two.
 They solve nearly every live-demo failure in under a minute.
+Neither one moves you off your branch.
 
-**Move 1: restore one broken file** (keeps your other edits):
+**Move 1: restore one broken file** from its checkpoint tag (keeps your other edits):
 
 ```bash
 git checkout <tag> -- app/models.py      # or app/schemas.py, app/routes.py
-python seed.py                           # only needed if models.py changed
+flask --app run db migrate -m "..."      # only if models.py changed
+flask --app run db upgrade               # only if models.py changed
+python seed.py --checkpoint N            # only if models.py changed
 ```
 
-**Move 2: jump the whole project to a checkpoint** (discards all uncommitted edits):
+**Move 2: start the database over** (when a migration went wrong or the data is in a state you don't trust):
 
 ```bash
-git reset --hard <tag>
-python seed.py
+rm instance/knowledge_base.db            # Windows: del instance\knowledge_base.db
+flask --app run db upgrade
+python seed.py --checkpoint N
 ```
+
+If a bad migration file was generated, delete it from `migrations/versions/` before Move 2.
+See "A migration went wrong" in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 Run both from the repository root with the virtual environment active.
 If the server is running, it reloads by itself after either move.
 If `flask shell` is open, `exit()` and reopen it.
 
-Use Move 2 only on your `live-session` branch.
-If you are on `main` by accident, run `git checkout -b live-session` first.
+The tags hold the reference lesson files in `app/`.
+They predate the migrations and the per-checkpoint tests, so never `git reset --hard` to a tag; restore single files from it instead.
 
 ## Quick reference
 
-| Tag                             | `python seed.py` prints                                          | `pytest -q` |
-| ------------------------------- | ---------------------------------------------------------------- | ----------- |
-| `00-starter`                    | `Seeded 2 users.`                                                | 1 passed    |
-| `01-one-to-many`                | `Seeded 2 users, 3 documents.`                                   | 5 passed    |
-| `02-one-to-one`                 | `Seeded 2 users, 2 profiles, 3 documents.`                       | 7 passed    |
-| `03-many-to-many`               | `Seeded 2 users, 2 profiles, 3 documents, 3 tags.`               | 9 passed    |
-| `04-document-chunks`            | `Seeded 2 users, 2 profiles, 3 documents, 5 chunks, 3 tags.`     | 12 passed   |
-| `05-serialization`              | same as 04                                                       | 20 passed   |
-| `06-deserialization-validation` | same as 04                                                       | 31 passed   |
-| `07-api-responses`              | same as 04                                                       | 34 passed   |
-| `08-final`                      | same as 04                                                       | 44 passed   |
+| Checkpoint                      | Migration created                     | `python seed.py --checkpoint N` prints                           | `pytest -q --checkpoint N` |
+| ------------------------------- | ------------------------------------- | ---------------------------------------------------------------- | -------------------------- |
+| `00-starter`                    | `users` (already on `starter`)        | `Seeded 2 users.`                                                | 2 passed                   |
+| `01-one-to-many`                | `documents`                           | `Seeded 2 users, 3 documents.`                                   | 6 passed                   |
+| `02-one-to-one`                 | `profiles`                            | `Seeded 2 users, 3 documents, 2 profiles.`                       | 8 passed                   |
+| `03-many-to-many`               | `tags`, `document_tags`               | `Seeded 2 users, 3 documents, 2 profiles, 3 tags.`               | 10 passed                  |
+| `04-document-chunks`            | `chunks`                              | `Seeded 2 users, 3 documents, 2 profiles, 3 tags, 5 chunks.`     | 13 passed                  |
+| `05-serialization`              | none                                  | same as 04                                                       | 21 passed                  |
+| `06-deserialization-validation` | none                                  | same as 04                                                       | 32 passed                  |
+| `07-api-responses`              | none                                  | same as 04                                                       | 35 passed                  |
+| `08-final`                      | none                                  | same as 04                                                       | 45 passed                  |
 
-To see exactly what any checkpoint adds:
+To see exactly what any checkpoint adds to the lesson code:
 
 ```bash
-git diff <previous-tag> <tag>
+git diff <previous-tag> <tag> -- app/models.py app/schemas.py app/routes.py
 ```
 
 To compare your live code with a checkpoint (comment differences are fine):
 
 ```bash
-git diff <tag>
+git diff <tag> -- app/models.py          # or app/schemas.py, app/routes.py
 ```
 
 ---
@@ -68,9 +90,10 @@ git diff <tag>
 - A `User` model with `id` and a unique, required `email`.
 - `GET /health` and the `success_response` / `error_response` helpers.
 - A placeholder `app/schemas.py`.
-- A seed script that creates two users, and one passing test.
+- Flask-Migrate, with the `users` table migration already in `migrations/versions/`.
+- `seed.py` and the tests for every checkpoint; `--checkpoint 0` runs only the starter's share.
 
-**Files:** `app/__init__.py`, `app/models.py`, `app/routes.py`, `app/schemas.py`, `run.py`, `seed.py`, `tests/conftest.py`, `tests/test_health.py`, `requirements.txt`, `pytest.ini`, all documentation.
+**Files:** `app/__init__.py`, `app/models.py`, `app/routes.py`, `app/schemas.py`, `migrations/`, `run.py`, `seed.py`, `tests/`, `requirements.txt`, `pytest.ini`, all documentation.
 
 **Important code:**
 
@@ -84,17 +107,18 @@ class User(db.Model):
 **Verify:**
 
 ```bash
-python seed.py && pytest -q
+flask --app run db upgrade
+python seed.py --checkpoint 0 && pytest -q --checkpoint 0
 ```
 
 **Expected output:**
 
 ```
 Seeded 2 users.
-1 passed
+2 passed
 ```
 
-**Likely live-demo failure:** the virtual environment isn't active, so `python seed.py` fails with `ModuleNotFoundError: No module named 'flask'`.
+**Likely live-demo failure:** the virtual environment isn't active, so `flask` or `python seed.py` fails with `ModuleNotFoundError: No module named 'flask'`.
 
 **Fastest recovery:** `source .venv/bin/activate` (Windows: `.venv\Scripts\activate`), then rerun.
 If packages are missing: `pip install -r requirements.txt`.
@@ -110,7 +134,8 @@ Add `User.documents` and the `Document` class to `app/models.py`.
 
 **What should currently exist:** everything from 00, plus a `Document` model that belongs to a `User`.
 
-**Files changed:** `app/models.py`, `seed.py`, `tests/test_models.py` (new).
+**Files changed:** `app/models.py`, plus a new migration in `migrations/versions/`.
+**Tests switched on:** `tests/test_01_one_to_many.py`.
 
 **Important code:**
 
@@ -126,21 +151,23 @@ owner = db.relationship("User", back_populates="documents")
 **Verify:**
 
 ```bash
-git checkout 01-one-to-many -- seed.py tests/
-python seed.py && pytest -q
+flask --app run db migrate -m "Create documents table"
+flask --app run db upgrade
+python seed.py --checkpoint 1 && pytest -q --checkpoint 1
 ```
 
 **Expected output:**
 
 ```
 Seeded 2 users, 3 documents.
-5 passed
+6 passed
 ```
 
 **Likely live-demo failure:** `db.ForeignKey("user.id")` instead of `"users.id"`.
 Error: `NoReferencedTableError: ... could not find table 'user'`.
 
-**Fastest recovery:** fix the string, or `git reset --hard 01-one-to-many && python seed.py`.
+**Fastest recovery:** fix the string and rerun `flask --app run db migrate` (the broken model stops `migrate` before it writes a file).
+Or `git checkout 01-one-to-many -- app/models.py`, then migrate, upgrade, and `python seed.py --checkpoint 1`.
 
 **Next:** INSTRUCTOR_SCRIPT step 4.
 Add `User.profile` and the `Profile` class.
@@ -153,7 +180,8 @@ Add `User.profile` and the `Profile` class.
 
 **What should currently exist:** everything from 01, plus a `Profile` model with exactly one per user.
 
-**Files changed:** `app/models.py`, `seed.py`, `tests/test_models.py`.
+**Files changed:** `app/models.py`, plus a new migration in `migrations/versions/`.
+**Tests switched on:** `tests/test_02_one_to_one.py`.
 
 **Important code:**
 
@@ -169,21 +197,22 @@ user = db.relationship("User", back_populates="profile")
 **Verify:**
 
 ```bash
-git checkout 02-one-to-one -- seed.py tests/
-python seed.py && pytest -q
+flask --app run db migrate -m "Create profiles table"
+flask --app run db upgrade
+python seed.py --checkpoint 2 && pytest -q --checkpoint 2
 ```
 
 **Expected output:**
 
 ```
-Seeded 2 users, 2 profiles, 3 documents.
-7 passed
+Seeded 2 users, 3 documents, 2 profiles.
+8 passed
 ```
 
 **Likely live-demo failure:** the shell shows `PendingRollbackError` after the duplicate-profile demo.
 
 **Fastest recovery:** type `db.session.rollback()` in the shell.
-If the model is broken: `git reset --hard 02-one-to-one && python seed.py`.
+If the model is broken: `git checkout 02-one-to-one -- app/models.py`, then migrate, upgrade, and `python seed.py --checkpoint 2`.
 
 **Next:** INSTRUCTOR_SCRIPT step 5.
 Add `document_tags`, `Document.tags`, and the `Tag` class.
@@ -196,7 +225,8 @@ Add `document_tags`, `Document.tags`, and the `Tag` class.
 
 **What should currently exist:** everything from 02, plus `Tag` and the `document_tags` association table.
 
-**Files changed:** `app/models.py`, `seed.py`, `tests/test_models.py`.
+**Files changed:** `app/models.py`, plus a new migration in `migrations/versions/`.
+**Tests switched on:** `tests/test_03_many_to_many.py`.
 
 **Important code:**
 
@@ -218,21 +248,22 @@ documents = db.relationship("Document", secondary=document_tags, back_populates=
 **Verify:**
 
 ```bash
-git checkout 03-many-to-many -- seed.py tests/
-python seed.py && pytest -q
+flask --app run db migrate -m "Create tags and document_tags tables"
+flask --app run db upgrade
+python seed.py --checkpoint 3 && pytest -q --checkpoint 3
 ```
 
 **Expected output:**
 
 ```
-Seeded 2 users, 2 profiles, 3 documents, 3 tags.
-9 passed
+Seeded 2 users, 3 documents, 2 profiles, 3 tags.
+10 passed
 ```
 
 **Likely live-demo failure:** `NameError: name 'document_tags' is not defined`, because the table was typed below `Document`.
 
 **Fastest recovery:** move the `document_tags = db.Table(...)` block to just below `from app import db`.
-Or `git reset --hard 03-many-to-many && python seed.py`.
+Or `git checkout 03-many-to-many -- app/models.py`, then migrate, upgrade, and `python seed.py --checkpoint 3`.
 
 **Next:** INSTRUCTOR_SCRIPT step 7 (scenario), then step 8.
 Add `Document.chunks` and the `Chunk` class.
@@ -244,9 +275,10 @@ Add `Document.chunks` and the `Chunk` class.
 **Script step:** 8 (minute 43).
 
 **What should currently exist:** the complete model layer.
-The database schema does not change after this checkpoint.
+The database schema does not change after this checkpoint, so this is the last migration.
 
-**Files changed:** `app/models.py`, `seed.py`, `tests/test_models.py`, `tests/conftest.py` (adds the `sample_document` fixture).
+**Files changed:** `app/models.py`, plus a new migration in `migrations/versions/`.
+**Tests switched on:** `tests/test_04_document_chunks.py` (and the `sample_document` fixture in `tests/conftest.py` now works).
 
 **Important code:**
 
@@ -266,22 +298,23 @@ document = db.relationship("Document", back_populates="chunks")
 **Verify:**
 
 ```bash
-git checkout 04-document-chunks -- seed.py tests/
-python seed.py && pytest -q
+flask --app run db migrate -m "Create chunks table"
+flask --app run db upgrade
+python seed.py --checkpoint 4 && pytest -q --checkpoint 4
 ```
 
 **Expected output:**
 
 ```
-Seeded 2 users, 2 profiles, 3 documents, 5 chunks, 3 tags.
-12 passed
+Seeded 2 users, 3 documents, 2 profiles, 3 tags, 5 chunks.
+13 passed
 ```
 
-**Likely live-demo failure:** forgetting to run `python seed.py` after adding `Chunk`.
-Error: `sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such table: chunks`.
+**Likely live-demo failure:** forgetting to migrate after adding `Chunk`.
+Error: `no such table: chunks` from `python seed.py`, and a failing `test_migrations_build_the_same_schema_as_the_models`.
 
-**Fastest recovery:** `python seed.py`.
-If the model is broken: `git reset --hard 04-document-chunks && python seed.py`.
+**Fastest recovery:** `flask --app run db migrate -m "Create chunks table" && flask --app run db upgrade`, then seed again.
+If the model is broken: `git checkout 04-document-chunks -- app/models.py`, then migrate, upgrade, and `python seed.py --checkpoint 4`.
 
 **Next:** INSTRUCTOR_SCRIPT step 9 (constraint demo in the shell), then step 10.
 Replace `app/schemas.py` with the output-only schemas.
@@ -295,7 +328,8 @@ Replace `app/schemas.py` with the output-only schemas.
 **What should currently exist:** Marshmallow schemas that `dump()` nested tags and chunks, plus `GET /documents` and `GET /documents/<id>`.
 Schemas have **no validation rules yet**.
 
-**Files changed:** `app/schemas.py`, `app/routes.py`, `tests/test_schemas.py` (new), `tests/test_routes.py` (new).
+**Files changed:** `app/schemas.py`, `app/routes.py`.
+**Tests switched on:** `tests/test_05_serialization.py`.
 
 **Important code:**
 
@@ -321,13 +355,12 @@ def get_document(document_id):
 **Verify:**
 
 ```bash
-git checkout 05-serialization -- seed.py tests/
-python seed.py && pytest -q
+pytest -q --checkpoint 5
 python run.py                                  # Terminal 1
 curl http://127.0.0.1:5555/documents/1         # Terminal 3
 ```
 
-**Expected output:** `20 passed`, and the curl returns `{"data": {"id": 1, "title": "Flask Relationships", ... "tags": [...], "chunks": [...]}}`.
+**Expected output:** `21 passed`, and the curl returns `{"data": {"id": 1, "title": "Flask Relationships", ... "tags": [...], "chunks": [...]}}`.
 
 **Likely live-demo failure:** `RecursionError: maximum recursion depth exceeded` because a `documents` field was added to `TagSchema`.
 Or `Address already in use` when starting the server.
@@ -347,7 +380,8 @@ Demo `load()` with no rules, then add validators to `app/schemas.py`.
 **What should currently exist:** the final schemas with `required`, `Length`, `Url`, `Range`, `Email`, and the custom `not_blank` validator.
 Routes are unchanged from 05.
 
-**Files changed:** `app/schemas.py`, `tests/test_schemas.py`.
+**Files changed:** `app/schemas.py`.
+**Tests switched on:** `tests/test_06_deserialization_validation.py`.
 
 **Important code:**
 
@@ -366,11 +400,10 @@ content = fields.Str(required=True, validate=not_blank)
 **Verify:**
 
 ```bash
-git checkout 06-deserialization-validation -- tests/
-pytest -q
+pytest -q --checkpoint 6
 ```
 
-**Expected output:** `31 passed`.
+**Expected output:** `32 passed`.
 
 **Likely live-demo failure:** `NameError: name 'ValidationError' is not defined` (import line not updated), or the shell still using old schema code.
 
@@ -387,7 +420,8 @@ Add `POST /documents` to `app/routes.py`, first without `try`/`except`.
 
 **What should currently exist:** `POST /documents` that returns 201 on success and a 400 `validation_error` envelope on bad input.
 
-**Files changed:** `app/routes.py`, `tests/test_routes.py`.
+**Files changed:** `app/routes.py`.
+**Tests switched on:** `tests/test_07_api_responses.py`.
 
 **Important code:**
 
@@ -413,14 +447,13 @@ def create_document():
 **Verify:**
 
 ```bash
-git checkout 07-api-responses -- tests/
-pytest -q
+pytest -q --checkpoint 7
 curl -X POST http://127.0.0.1:5555/documents \
   -H "Content-Type: application/json" \
   -d '{"title": "", "source_url": "not-a-url"}'
 ```
 
-**Expected output:** `34 passed`, and the curl returns 400 with `title`, `source_url`, and `owner_id` in `details`.
+**Expected output:** `35 passed`, and the curl returns 400 with `title`, `source_url`, and `owner_id` in `details`.
 
 **Likely live-demo failure:** curl returns an HTML page.
 Either the `Content-Type` header is missing (415), or `ValidationError` isn't caught yet (500).
@@ -429,11 +462,11 @@ Either the `Content-Type` header is missing (415), or `ValidationError` isn't ca
 For the route: `git checkout 07-api-responses -- app/routes.py`.
 
 **Next:** INSTRUCTOR_SCRIPT step 15.
-Commit the live work and check out `08-final`:
+Commit the live work and pull the finished routes file from `main` (you stay on your branch):
 
 ```bash
 git add -A && git commit -m "Live session through checkpoint 07"
-git checkout 08-final
+git checkout main -- app/routes.py
 ```
 
 ---
@@ -445,7 +478,8 @@ git checkout 08-final
 **What should currently exist:** the complete solution.
 `POST /documents/<id>/chunks`, `POST /tags`, `POST /documents/<id>/tags/<tag_id>`, and `POST /users`, each with `IntegrityError` handling that returns a 409 `integrity_error` envelope where a UNIQUE constraint applies.
 
-**Files changed:** `app/routes.py`, `tests/test_routes.py`.
+**Files changed:** `app/routes.py` (pulled from `main`, not typed).
+**Tests switched on:** `tests/test_08_integrity_errors.py`.
 
 **Important code:**
 
@@ -466,11 +500,11 @@ python seed.py && pytest -q
 curl -X POST http://127.0.0.1:5555/tags -H "Content-Type: application/json" -d '{"name": "flask"}'
 ```
 
-**Expected output:** `44 passed`, and the curl returns 409 with `{"error": "integrity_error", "details": {"name": ["Tag 'flask' already exists."]}}`.
+**Expected output:** `45 passed` (no `--checkpoint` needed now), and the curl returns 409 with `{"error": "integrity_error", "details": {"name": ["Tag 'flask' already exists."]}}`.
 
-**Likely live-demo failure:** `git checkout 08-final` refuses because of uncommitted changes.
+**Likely live-demo failure:** `git checkout main -- app/routes.py` fails with `pathspec 'main' did not match`, because this clone has no local `main`.
 
-**Fastest recovery:** `git stash -u && git checkout 08-final`.
+**Fastest recovery:** `git fetch origin && git checkout origin/main -- app/routes.py`.
 If the server stopped, `python run.py`.
 
 **Next:** INSTRUCTOR_SCRIPT step 16 (API design discussion), then the exit check.
