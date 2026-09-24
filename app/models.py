@@ -55,10 +55,31 @@ class Document(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
 
     owner = db.relationship("User", back_populates="documents")
+    chunks = db.relationship("Chunk", back_populates="document", order_by="Chunk.position")
     tags = db.relationship("Tag", secondary=document_tags, back_populates="documents", order_by="Tag.name")
 
     def __repr__(self):
         return f"<Document id={self.id} title={self.title!r}>"
+
+
+class Chunk(db.Model):
+    __tablename__ = "chunks"
+    __table_args__ = (
+        # The database refuses negative positions, no matter who inserts the row.
+        db.CheckConstraint("position >= 0", name="ck_chunks_position_non_negative"),
+        # A document cannot have two chunks at the same position.
+        db.UniqueConstraint("document_id", "position", name="uq_chunks_document_position"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey("documents.id"), nullable=False)
+    position = db.Column(db.Integer, nullable=False)
+    content = db.Column(db.Text, nullable=False)
+
+    document = db.relationship("Document", back_populates="chunks")
+
+    def __repr__(self):
+        return f"<Chunk id={self.id} document_id={self.document_id} position={self.position}>"
 
 
 class Tag(db.Model):

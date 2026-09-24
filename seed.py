@@ -1,7 +1,7 @@
 from sqlalchemy import MetaData
 
 from app import create_app, db
-from app.models import Document, Profile, Tag, User
+from app.models import Chunk, Document, Profile, Tag, User
 
 app = create_app()
 
@@ -46,8 +46,21 @@ with app.app_context():
         tags=[retrieval_tag],
     )
 
+    # One-to-many: a document is split into ordered chunks.
+    relationships_doc.chunks = [
+        Chunk(position=0, content="SQLAlchemy relationships connect Python objects through foreign keys."),
+        Chunk(position=1, content="back_populates keeps both sides of a relationship in sync."),
+    ]
+    marshmallow_doc.chunks = [
+        Chunk(position=0, content="dump() turns objects into JSON-ready data; load() validates incoming data."),
+    ]
+    chunking_doc.chunks = [
+        Chunk(position=0, content="Retrieval systems search small chunks instead of whole documents."),
+        Chunk(position=1, content="Each chunk keeps a position so the original order can be rebuilt."),
+    ]
+
     db.session.add_all([ada, grace, relationships_doc, marshmallow_doc, chunking_doc])
     db.session.commit()
 
     print(f"Seeded {User.query.count()} users, {Profile.query.count()} profiles, {Document.query.count()} documents, "
-          f"{Tag.query.count()} tags.")
+          f"{Chunk.query.count()} chunks, {Tag.query.count()} tags.")
